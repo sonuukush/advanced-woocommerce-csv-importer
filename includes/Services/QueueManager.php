@@ -119,6 +119,8 @@ class QueueManager {
 			$this->job_repo->update( $job_id, array(
 				'status' => 'completed',
 			) );
+			$logger->export_csv( $job_id );
+			$logger->send_completion_email( $job_id );
 			return;
 		}
 
@@ -180,6 +182,7 @@ class QueueManager {
 
 			// Generate export files once complete.
 			$logger->export_csv( $job_id );
+			$logger->send_completion_email( $job_id );
 		} else {
 			// Check if we can proceed.
 			if ( 'processing' === $job->status ) {

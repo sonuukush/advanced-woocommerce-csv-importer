@@ -110,6 +110,9 @@ class RetryService {
 			$this->job_repo->update( $job_id, array(
 				'status' => 'completed',
 			) );
+			$logger = new LoggerService();
+			$logger->export_csv( $job_id );
+			$logger->send_completion_email( $job_id );
 			return;
 		}
 
@@ -201,6 +204,7 @@ class RetryService {
 			// Regenerate logs export.
 			$logger = new LoggerService();
 			$logger->export_csv( $job_id );
+			$logger->send_completion_email( $job_id );
 		} else {
 			if ( 'processing' === $job->status ) {
 				$this->enqueue_retry_batch( $job_id, $batch_size );
