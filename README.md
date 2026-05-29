@@ -10,7 +10,7 @@ A professional-grade, high-performance WordPress WooCommerce plugin designed to 
 
 ## 📊 Visual System Architecture Flow
 
-The flowchart below visualizes the asynchronous, multi-step pipeline of the import engine, from secure file upload to background queue processing and reporting.
+The flowchart below visualizes the asynchronous, multi-step pipeline of the import engine, from secure file upload to background queue processing, reporting, and automated email deliveries.
 
 ```mermaid
 graph TD
@@ -49,7 +49,8 @@ graph TD
     L -->|19. Check Progress Bounds| T{Remaining Rows > 0?}
     T -->|Yes| U[Enqueue Next Batch Action] --> K
     T -->|No| V[Job Completed: Update DB]:::success
-    V -->|20. Export Logs Report| W[LoggerService: export_csv]
+    V -->|20. Export Logs Report| W(LoggerService: export_csv)
+    V -->|21. Send Completion HTML Mail| X[wp_mail: Admin Notification]:::accent
 
     class A,B,E,I primary;
     class V success;
@@ -98,11 +99,12 @@ The entire plugin operates in **five distinct architectural stages**. Below is t
 4. **MD5 Duplicate matching**: It queries `wp_postmeta` for a matching `_source_image_hash`. If the hash exists (meaning the exact same image was already downloaded under a different URL or name), it deletes the temp file and returns the existing attachment ID.
 5. **Media Registration**: If the image is entirely new, it moves it to the uploads folder, inserts it as a media attachment (`wp_insert_attachment`), generates metadata sizes, saves the `_source_image_url` and `_source_image_hash` meta tags, and attaches it to the WooCommerce product.
 
-### Phase 5: Auditing, Logging, & Automated Retries
+### Phase 5: Auditing, Email Alerts & Automated Retries
 1. **Live AJAX Polling**: While the import runs in the background, `admin-script.js` polls `wc_csv_get_progress` every 2 seconds. It updates the progress bar, success/error metrics, and calculates the ETA.
 2. **Log Report Export**: When completed, [LoggerService.php](file:///C:/Users/sonu/.gemini/antigravity/scratch/advanced-woocommerce-csv-importer/includes/Services/LoggerService.php) exports job logs to a downloadable CSV: `{uploads_dir}/wc-csv-imports/job_{job_id}_logs.csv`.
-3. **Failed Row retries**: If rows failed (due to image download timeouts, malformed prices, etc.), the admin can click "Retry All Failed Rows".
-4. **Retry Loop Execution**: [RetryService.php](file:///C:/Users/sonu/.gemini/antigravity/scratch/advanced-woocommerce-csv-importer/includes/Services/RetryService.php) fetches failed rows from `wp_wc_csv_import_logs` and queues a retry batch (`advanced_wc_csv_import_retry_batch`) in the Action Scheduler. If a retry succeeds, the log status is updated to `success` and the database failure counters are decremented automatically.
+3. **Automated HTML Email Notifications**: Upon completion of either the primary import queue or a retry run, `LoggerService::send_completion_email()` is fired. It fetches the site administrator's email (`admin_email`), drafts a beautifully styled HTML report outlining the job statistics, and pushes it out via `wp_mail()`, natively attaching the full execution CSV log file.
+4. **Failed Row retries**: If rows failed (due to image download timeouts, malformed prices, etc.), the admin can click "Retry All Failed Rows".
+5. **Retry Loop Execution**: [RetryService.php](file:///C:/Users/sonu/.gemini/antigravity/scratch/advanced-woocommerce-csv-importer/includes/Services/RetryService.php) fetches failed rows from `wp_wc_csv_import_logs` and queues a retry batch (`advanced_wc_csv_import_retry_batch`) in the Action Scheduler. If a retry succeeds, the log status is updated to `success`, the database failure counters are decremented automatically, and a completion email is resent with the clean audit log.
 
 ---
 
@@ -111,7 +113,11 @@ The entire plugin operates in **five distinct architectural stages**. Below is t
 ### ⚡ Performance & Scalability
 - **Flat Memory Footprint**: Stream reading keeps memory consumption minimal ($<5\text{MB}$), whether importing 100 rows or 100,000 rows.
 - **Action Scheduler sequentially batches**: Eradicates PHP timeouts and locks by processing data in short, sequential background tasks.
-- **Optimized Term/Lookup Writes**: Accelerates inserts by disabling term counting hooks during live transactions.
+- **Optimized Term/Lookup Writes**: Deactivates term counting hooks during live transactions to ensure high insertion speeds.
+
+### 📧 Automated Email Audit Reporting
+- **HTML Reporting**: Dispatches rich HTML emails immediately when jobs complete, summarizing execution stats (Total, Imported, Failed, Mode, SKU behavior).
+- **Log Attachment Integration**: Automatically binds the full log CSV sheet to the outgoing `wp_mail()` request so admins can audit processing details.
 
 ### 🛡️ Security Best Practices
 - **Strict Role Permissions**: AJAX endpoints locked to the `manage_woocommerce` capability, ensuring only authorized administrators can upload and import products.
